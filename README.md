@@ -19,6 +19,7 @@ Se asumió que la base MongoDB está disponible (localmente o vía Docker) y que
 - MongoDB para persistir documentos y mensajes de chat
 - BeautifulSoup para scraping
 - sentence-transformers + Hugging Face para embeddings open source
+- Hugging Face Inference API (`huggingface_hub.InferenceClient`) con `HuggingFaceH4/zephyr-7b-beta` para la generación de respuestas del chat — modelo open source alojado en Hugging Face, sin dependencias de OpenAI ni de cargar un LLM localmente
 - Docker y Docker Compose para levantar la app y la base de datos
 
 ## Patrones de diseño implementados
@@ -35,6 +36,8 @@ Se asumió que la base MongoDB está disponible (localmente o vía Docker) y que
 - Puerto 27017 libre para MongoDB
 
 ## Levantar con Docker
+
+Asegúrate de tener el archivo `.env` en la raíz del proyecto con las variables necesarias. Docker Compose cargará esas variables para el servicio de la app.
 
 ```bash
 docker compose up --build
@@ -58,8 +61,13 @@ Se leen automáticamente desde el archivo .env si existe. Los valores por defect
 
 - MONGO_URL
 - MONGO_DB_NAME
-- MONGO_COLLECTION_NAME
-- EMBEDDING_MODEL
+- MONGO_COLLECTION_NAME (default: `RAG_BBVA`)
+- EMBEDDING_MODEL (default: `sentence-transformers/all-MiniLM-L6-v2`)
+- CHUNK_SIZE (default: `600`)
+- CHAT_WINDOW (default: `6`, cantidad de mensajes previos que se recuerdan por sesión)
+- LLM_MODEL (default: `HuggingFaceH4/zephyr-7b-beta`, modelo open source de Hugging Face usado para generar respuestas)
+- LLM_MAX_NEW_TOKENS (default: `300`)
+- HF_TOKEN (**obligatorio** para que el chat responda con el LLM): token gratuito de Hugging Face con permiso "Read". Créalo en https://huggingface.co/settings/tokens y pégalo en `.env` como `HF_TOKEN=hf_...`. Si falta o el modelo no responde, el sistema cae automáticamente a una respuesta extractiva basada en el fragmento más relevante recuperado (sin cortar el flujo del chat).
 
 ## Ejecutar localmente sin Docker
 
@@ -73,12 +81,12 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ## Limitaciones conocidas
 
 - El scraping es básico y funciona mejor con páginas estáticas o semiestáticas.
-- La respuesta del chat es de tipo retrieval-based y no usa un LLM generativo pesado.
-- La búsqueda es por similitud de embeddings, no por vector search nativo de MongoDB Atlas.
+- La generación de respuestas depende de la disponibilidad de la Inference API de Hugging Face (modelo `HuggingFaceH4/zephyr-7b-beta`); si el modelo tarda en "despertar" (cold start) o el token no está configurado, la app cae a una respuesta extractiva basada en el fragmento más relevante en vez de fallar.
+- La búsqueda es por similitud de embeddings calculada en la app, no por vector search nativo de MongoDB Atlas.
 
 ## Futuras mejoras
 
 - Añadir un reranker para mejorar la calidad del retrieval.
-- Integrar un modelo generativo open source de Hugging Face para respuestas más naturales.
+- Permitir elegir entre varios modelos de Hugging Face desde la UI.
 - Añadir autenticación y manejo de errores más robusto.
 - Guardar métricas de uso y calidad de respuestas en dashboards.

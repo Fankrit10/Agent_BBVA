@@ -16,11 +16,8 @@ services:
       - mongo
     ports:
       - "8000:8000"
-    environment:
-      MONGO_URL: mongodb://mongo:27017/
-      MONGO_DB_NAME: administration
-      MONGO_COLLECTION_NAME: RAG_BBVA
-      EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
+    env_file:
+      - .env
     volumes:
       - .:/app
 

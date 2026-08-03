@@ -53,8 +53,10 @@
         <textarea id="question" rows="3" placeholder="Pregunta sobre el contenido indexado"></textarea>
 
         <button id="ask-btn" style="margin-top: 12px;">Preguntar</button>
+        <button id="debug-toggle-btn" style="margin-top: 12px; background: #334155;">Mostrar debug</button>
         <div id="chat-status" class="status">Haz una pregunta.</div>
         <div id="messages" class="messages"></div>
+        <div id="debug-panel" class="messages hidden" style="margin-top: 12px;"></div>
       </div>
     </div>
 
@@ -68,8 +70,10 @@
       const sessionIdInput = document.getElementById('session-id');
       const questionInput = document.getElementById('question');
       const askBtn = document.getElementById('ask-btn');
+      const debugToggleBtn = document.getElementById('debug-toggle-btn');
       const chatStatus = document.getElementById('chat-status');
       const messagesEl = document.getElementById('messages');
+      const debugPanel = document.getElementById('debug-panel');
 
       async function loadDefaultUrls() {
         const response = await fetch('/api/default-urls');
@@ -126,8 +130,18 @@
         message.className = 'message';
         message.innerHTML = `<strong>Pregunta:</strong>${question}<br/><strong>Respuesta:</strong>${result.answer}`;
         messagesEl.prepend(message);
+
+        const debug = document.createElement('div');
+        debug.className = 'message';
+        debug.innerHTML = `<strong>Debug LLM:</strong><pre style="white-space: pre-wrap; font-size: 12px; margin: 0;">${JSON.stringify(result.debug, null, 2)}</pre>`;
+        debugPanel.prepend(debug);
+
         chatStatus.textContent = 'Respuesta generada.';
         questionInput.value = '';
+      });
+
+      debugToggleBtn.addEventListener('click', () => {
+        debugPanel.classList.toggle('hidden');
       });
 
       document.querySelectorAll('.tab-btn').forEach((button) => {

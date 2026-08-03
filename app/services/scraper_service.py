@@ -75,6 +75,14 @@ class ScraperService:
             "chunks_count": len(chunk_payloads),
         }
 
+    def _is_noise_chunk(self, chunk: str) -> bool:
+        alpha_chars = sum(1 for ch in chunk if ch.isalpha())
+        if alpha_chars / max(1, len(chunk)) < 0.45:
+            return True
+        if len(re.findall(r"[\{\}\[\]<>]", chunk)) > len(chunk) * 0.2:
+            return True
+        return False
+
     def _chunk_text(self, text: str) -> list[str]:
         paragraphs = [part.strip() for part in re.split(r"\n+", text) if part.strip()]
         chunks = []
@@ -83,12 +91,12 @@ class ScraperService:
             if len(current) + len(paragraph) < settings.CHUNK_SIZE:
                 current = f"{current} {paragraph}".strip()
             else:
-                if current:
+                if current and not self._is_noise_chunk(current):
                     chunks.append(current)
                 current = paragraph
-        if current:
+        if current and not self._is_noise_chunk(current):
             chunks.append(current)
-        return [chunk for chunk in chunks if len(chunk) > 30]
+        return [chunk for chunk in chunks if len(chunk) > 30 and not self._is_noise_chunk(chunk)]
 
     def _embed_text(self, text: str) -> list[float]:
         model = self._load_model()

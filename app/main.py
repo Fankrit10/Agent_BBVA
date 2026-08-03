@@ -8,7 +8,9 @@ from app.services.chat_service import ChatService
 from app.services.scraper_service import ScraperService
 
 app = FastAPI(title="BBVA RAG Agent", version="1.0.0")
-app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
 @app.on_event("startup")
