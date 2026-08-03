@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG BBVA</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #f4f7fb; color: #1f2937; }
+      .container { max-width: 980px; margin: 0 auto; padding: 24px; }
+      .card { background: white; border-radius: 16px; padding: 20px; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+      .tabs { display: flex; gap: 10px; margin-bottom: 16px; }
+      .tab-btn { border: 0; padding: 10px 16px; border-radius: 999px; cursor: pointer; background: #e5e7eb; }
+      .tab-btn.active { background: #1d4ed8; color: white; }
+      label { display: block; font-weight: 600; margin-bottom: 8px; }
+      select, input, textarea, button { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #d1d5db; font-size: 14px; box-sizing: border-box; }
+      button { cursor: pointer; background: #1d4ed8; color: white; border: 0; }
+      .status { margin-top: 12px; font-size: 14px; color: #374151; }
+      .messages { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+      .message { padding: 10px 12px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; }
+      .message strong { display: block; margin-bottom: 6px; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>RAG BBVA</h1>
+      <p>Scrapea una URL, indexa el contenido en MongoDB y consulta el conocimiento desde una UI mínima.</p>
+
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="scrape">Scraping</button>
+        <button class="tab-btn" data-tab="chat">Chat</button>
+      </div>
+
+      <div id="scrape-panel" class="card">
+        <label for="url-select">Selector de URLs</label>
+        <select id="url-select"></select>
+
+        <label for="url-input" style="margin-top: 12px;">URL personalizada</label>
+        <input id="url-input" placeholder="https://ejemplo.com" />
+
+        <button id="save-url-btn" style="margin-top: 12px;">Guardar URL en el RAG</button>
+        <div id="scrape-status" class="status">Listo para indexar.</div>
+
+        <button id="analytics-btn" style="margin-top: 12px; background: #0f766e;">Ver métricas</button>
+        <div id="analytics-status" class="status"></div>
+      </div>
+
+      <div id="chat-panel" class="card hidden">
+        <label for="session-id">ID de sesión</label>
+        <input id="session-id" value="default-session" />
+
+        <label for="question" style="margin-top: 12px;">Pregunta</label>
+        <textarea id="question" rows="3" placeholder="Pregunta sobre el contenido indexado"></textarea>
+
+        <button id="ask-btn" style="margin-top: 12px;">Preguntar</button>
+        <div id="chat-status" class="status">Haz una pregunta.</div>
+        <div id="messages" class="messages"></div>
+      </div>
+    </div>
+
+    <script>
+      const defaultUrlSelect = document.getElementById('url-select');
+      const urlInput = document.getElementById('url-input');
+      const saveUrlBtn = document.getElementById('save-url-btn');
+      const scrapeStatus = document.getElementById('scrape-status');
+      const analyticsBtn = document.getElementById('analytics-btn');
+      const analyticsStatus = document.getElementById('analytics-status');
+      const sessionIdInput = document.getElementById('session-id');
+      const questionInput = document.getElementById('question');
+      const askBtn = document.getElementById('ask-btn');
+      const chatStatus = document.getElementById('chat-status');
+      const messagesEl = document.getElementById('messages');
+
+      async function loadDefaultUrls() {
+        const response = await fetch('/api/default-urls');
+        const data = await response.json();
+        defaultUrlSelect.innerHTML = '';
+        data.urls.forEach((url) => {
+          const option = document.createElement('option');
+          option.value = url;
+          option.textContent = url;
+          defaultUrlSelect.appendChild(option);
+        });
+      }
+
+      saveUrlBtn.addEventListener('click', async () => {
+        const selected = defaultUrlSelect.value;
+        const custom = urlInput.value.trim();
+        const url = custom || selected;
+        scrapeStatus.textContent = 'Indexando...';
+        const response = await fetch('/api/scrape-and-index', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          scrapeStatus.textContent = result.detail || 'Error al indexar';
+          return;
+        }
+        scrapeStatus.textContent = `Contenido guardado en el RAG (${result.action})`;
+      });
+
+      analyticsBtn.addEventListener('click', async () => {
+        const response = await fetch('/api/analytics');
+        const data = await response.json();
+        analyticsStatus.textContent = `Sesiones: ${data.total_sessions} · Mensajes: ${data.total_messages}`;
+      });
+
+      askBtn.addEventListener('click', async () => {
+        const sessionId = sessionIdInput.value.trim() || 'default-session';
+        const question = questionInput.value.trim();
+        if (!question) return;
+        chatStatus.textContent = 'Consultando...';
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId, question })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          chatStatus.textContent = result.detail || 'Error al consultar';
+          return;
+        }
+        const message = document.createElement('div');
+        message.className = 'message';
+        message.innerHTML = `<strong>Pregunta:</strong>${question}<br/><strong>Respuesta:</strong>${result.answer}`;
+        messagesEl.prepend(message);
+        chatStatus.textContent = 'Respuesta generada.';
+        questionInput.value = '';
+      });
+
+      document.querySelectorAll('.tab-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+          document.querySelectorAll('.tab-btn').forEach((btn) => btn.classList.remove('active'));
+          button.classList.add('active');
+          const target = button.dataset.tab;
+          document.getElementById('scrape-panel').classList.toggle('hidden', target !== 'scrape');
+          document.getElementById('chat-panel').classList.toggle('hidden', target !== 'chat');
+        });
+      });
+
+      loadDefaultUrls();
+    </script>
+  </body>
+</html>

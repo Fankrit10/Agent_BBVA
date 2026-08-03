@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: bbva-rag-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  app:
+    build: .
+    container_name: bbva-rag-app
+    depends_on:
+      - mongo
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URL: mongodb://mongo:27017/
+      MONGO_DB_NAME: administration
+      MONGO_COLLECTION_NAME: RAG_BBVA
+      EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
+    volumes:
+      - .:/app
+
+volumes:
+  mongo_data:
