@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException, Request
+import re
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
@@ -7,6 +9,19 @@ from pathlib import Path
 from app.config import settings
 from app.services.chat_service import ChatService
 from app.services.scraper_service import ScraperService
+
+CHARSET_RE = re.compile(rb'charset=["\']?\s*([\w-]+)', re.IGNORECASE)
+
+
+def _decode_html(raw_bytes: bytes) -> str:
+    match = CHARSET_RE.search(raw_bytes[:2048])
+    declared_encoding = match.group(1).decode("ascii", errors="ignore") if match else None
+    for encoding in filter(None, [declared_encoding, "utf-8"]):
+        try:
+            return raw_bytes.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw_bytes.decode("latin-1")
 
 app = FastAPI(title="BBVA RAG Agent", version="1.0.0")
 static_dir = Path(__file__).parent / "static"
@@ -51,6 +66,27 @@ async def scrape_and_index(request: Request) -> dict[str, object]:
 
     try:
         result = await run_in_threadpool(scraper_service.scrape_and_index, url)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return result
+
+
+@app.post("/api/index-html-file")
+async def index_html_file(source_url: str = Form(...), file: UploadFile = File(...)) -> dict[str, object]:
+    source_url = source_url.strip()
+    if not source_url:
+        raise HTTPException(status_code=400, detail="Se requiere la URL de origen")
+
+    scraper_service = getattr(app.state, "scraper_service", None)
+    if scraper_service is None:
+        raise HTTPException(status_code=500, detail="Servicio no inicializado")
+
+    raw_bytes = await file.read()
+    html = _decode_html(raw_bytes)
+
+    try:
+        result = await run_in_threadpool(scraper_service.index_uploaded_html, source_url, html)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

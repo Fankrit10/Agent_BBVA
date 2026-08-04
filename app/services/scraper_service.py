@@ -7,7 +7,8 @@ from typing import Any
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from app.adapters.playwright_scraper_adapter import PlaywrightScraperAdapter
+from app.adapters.bs4_scraper_adapter import BeautifulSoupScraperAdapter
+from app.adapters.resilient_scraper_adapter import ResilientScraperAdapter
 from app.config import settings
 from app.db.mongo_singleton import MongoSingleton
 from app.factories.rag_document_factory import StandardRagDocumentFactory
@@ -17,7 +18,8 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
 class ScraperService:
     def __init__(self):
-        self.adapter = PlaywrightScraperAdapter()
+        self.adapter = ResilientScraperAdapter()
+        self._upload_adapter = BeautifulSoupScraperAdapter()
         self.factory = StandardRagDocumentFactory()
         self.embedding_model = None
         self.collection = MongoSingleton.get_instance().get_collection()
@@ -36,10 +38,14 @@ class ScraperService:
         }
 
     def _extract_title(self, html: str) -> str:
-        match = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
-        if not match:
-            return "Sin título"
-        return re.sub(r"\s+", " ", match.group(1)).strip()
+        html_match = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+        if html_match:
+            return re.sub(r"\s+", " ", html_match.group(1)).strip()
+        # Jina AI's reader proxy returns Markdown starting with "Title: ..."
+        markdown_match = re.match(r"\s*Title:\s*(.+)", html)
+        if markdown_match:
+            return markdown_match.group(1).strip()
+        return "Sin título"
 
     def _persist_local_copies(self, source_hash: str, raw_html: str, raw_text: str, cleaned_text: str) -> None:
         raw_dir = DATA_DIR / "raw"
@@ -52,9 +58,26 @@ class ScraperService:
 
     def scrape_and_index(self, url: str) -> dict[str, Any]:
         page = self.fetch_page(url)
-        raw_text, cleaned_text = self.adapter.extract(page["html"], page["url"])
-        source_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
-        self._persist_local_copies(source_hash, page["html"], raw_text, cleaned_text)
+        raw_text, cleaned_text = self.adapter.extract(page["html"], url)
+        return self._index_html(url, page["html"], page["title"], raw_text, cleaned_text)
+
+    def index_uploaded_html(self, source_url: str, html: str) -> dict[str, Any]:
+        """Index a page that was captured manually outside this app (e.g. saved
+        from a real browser as 'Webpage, HTML only') and uploaded through the
+        UI. Bypasses live fetching entirely, so it works even for sites whose
+        WAF blocks automated requests (bot-protected banking sites). Always
+        uses the plain HTML extractor, regardless of which live-fetch
+        strategy the resilient adapter last used, since the uploaded content
+        is always real HTML markup (not Jina's Markdown)."""
+        title = self._extract_title(html)
+        raw_text, cleaned_text = self._upload_adapter.extract(html, source_url)
+        return self._index_html(source_url, html, title, raw_text, cleaned_text)
+
+    def _index_html(
+        self, source_url: str, html: str, title: str, raw_text: str, cleaned_text: str
+    ) -> dict[str, Any]:
+        source_hash = hashlib.sha256(source_url.encode("utf-8")).hexdigest()
+        self._persist_local_copies(source_hash, html, raw_text, cleaned_text)
 
         chunks = self._chunk_text(cleaned_text)
         chunk_payloads = []
@@ -63,8 +86,8 @@ class ScraperService:
             chunk_payloads.append(self.factory.create_chunk(chunk, index, embedding))
 
         document_payload = self.factory.create_document(
-            source_url=url,
-            title=page["title"],
+            source_url=source_url,
+            title=title,
             raw_text=raw_text,
             cleaned_text=cleaned_text,
             chunks=chunk_payloads,
@@ -82,8 +105,8 @@ class ScraperService:
         return {
             "status": "ok",
             "action": action,
-            "source_url": url,
-            "title": page["title"],
+            "source_url": source_url,
+            "title": title,
             "chunks_count": len(chunk_payloads),
         }
 

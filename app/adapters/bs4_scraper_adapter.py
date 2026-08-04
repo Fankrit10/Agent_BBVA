@@ -1,6 +1,12 @@
+import collections
+import collections.abc
 import re
 
 import requests
+
+if not hasattr(collections, "Callable"):
+    collections.Callable = collections.abc.Callable
+
 from bs4 import BeautifulSoup
 
 from app.adapters.base import BaseScraperAdapter
