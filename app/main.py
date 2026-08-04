@@ -57,15 +57,29 @@ def default_urls() -> dict[str, list[str]]:
 async def scrape_and_index(request: Request) -> dict[str, object]:
     payload = await request.json()
     url = payload.get("url", "").strip()
+    max_chars_value = payload.get("max_chars_per_embedding")
     if not url:
         raise HTTPException(status_code=400, detail="Se requiere una URL")
+
+    max_chars_per_embedding = None
+    if max_chars_value is not None:
+        try:
+            max_chars_per_embedding = int(max_chars_value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="max_chars_per_embedding debe ser un número entero")
+        if max_chars_per_embedding <= 0:
+            raise HTTPException(status_code=400, detail="max_chars_per_embedding debe ser mayor que 0")
 
     scraper_service = getattr(app.state, "scraper_service", None)
     if scraper_service is None:
         raise HTTPException(status_code=500, detail="Servicio no inicializado")
 
     try:
-        result = await run_in_threadpool(scraper_service.scrape_and_index, url)
+        result = await run_in_threadpool(
+            scraper_service.scrape_and_index,
+            url,
+            max_chars_per_embedding,
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -114,6 +128,22 @@ def history(session_id: str) -> dict[str, object]:
     if chat_service is None:
         raise HTTPException(status_code=500, detail="Servicio de chat no inicializado")
     return {"session_id": session_id, "messages": chat_service.get_history(session_id)}
+
+
+@app.get("/api/embeddings")
+def get_embeddings(limit: int = 100) -> dict[str, object]:
+    scraper_service = getattr(app.state, "scraper_service", None)
+    if scraper_service is None:
+        raise HTTPException(status_code=500, detail="Servicio no inicializado")
+    return {"embeddings": scraper_service.list_embeddings(limit=limit)}
+
+
+@app.post("/api/embeddings/clear")
+def clear_embeddings() -> dict[str, object]:
+    scraper_service = getattr(app.state, "scraper_service", None)
+    if scraper_service is None:
+        raise HTTPException(status_code=500, detail="Servicio no inicializado")
+    return scraper_service.clear_embeddings()
 
 
 @app.get("/api/analytics")

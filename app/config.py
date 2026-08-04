@@ -16,6 +16,7 @@ class Settings:
     ]
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "600"))
     CHAT_WINDOW = int(os.getenv("CHAT_WINDOW", "6"))
+    MAX_CHARS_PER_EMBEDDING = int(os.getenv("MAX_CHARS_PER_EMBEDDING", "300"))
     LLM_MODEL = os.getenv("LLM_MODEL", "HuggingFaceH4/zephyr-7b-beta").strip(" '\"")
     HF_TOKEN = os.getenv("HF_TOKEN", "").strip(" '\"")
     LLM_MAX_NEW_TOKENS = int(os.getenv("LLM_MAX_NEW_TOKENS", "300"))

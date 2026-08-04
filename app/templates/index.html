@@ -29,6 +29,7 @@
       <div class="tabs">
         <button class="tab-btn active" data-tab="scrape">Scraping</button>
         <button class="tab-btn" data-tab="chat">Chat</button>
+        <button class="tab-btn" data-tab="embeddings">Embeddings</button>
       </div>
 
       <div id="scrape-panel" class="card">
@@ -38,8 +39,12 @@
         <label for="url-input" style="margin-top: 12px;">URL personalizada</label>
         <input id="url-input" placeholder="https://ejemplo.com" />
 
-        <button id="save-url-btn" style="margin-top: 12px;">Guardar URL en el RAG</button>
+        <label for="max-chars-embedding" style="margin-top: 12px;">Máx. letras por embedding</label>
+        <input id="max-chars-embedding" type="number" min="100" value="1000" />
+
+        <button id="save-url-btn" style="margin-top: 12px;">Indexar página</button>
         <div id="scrape-status" class="status">Listo para indexar.</div>
+        <div id="index-preview" class="status" style="margin-top: 8px; white-space: pre-wrap;"></div>
 
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;" />
 
@@ -70,13 +75,22 @@
         <div id="messages" class="messages"></div>
         <div id="debug-panel" class="messages hidden" style="margin-top: 12px;"></div>
       </div>
+
+      <div id="embeddings-panel" class="card hidden">
+        <button id="load-embeddings-btn" style="margin-top: 0;">Cargar embeddings guardados</button>
+        <button id="clear-embeddings-btn" style="margin-top: 12px; background: #b91c1c;">Borrar embeddings</button>
+        <div id="embeddings-status" class="status">Revisa el contenido embebido guardado.</div>
+        <div id="embeddings-list" class="messages" style="margin-top: 12px;"></div>
+      </div>
     </div>
 
     <script>
       const defaultUrlSelect = document.getElementById('url-select');
       const urlInput = document.getElementById('url-input');
+      const maxCharsInput = document.getElementById('max-chars-embedding');
       const saveUrlBtn = document.getElementById('save-url-btn');
       const scrapeStatus = document.getElementById('scrape-status');
+      const indexPreview = document.getElementById('index-preview');
       const uploadUrlInput = document.getElementById('upload-url-input');
       const uploadFileInput = document.getElementById('upload-file-input');
       const uploadBtn = document.getElementById('upload-btn');
@@ -90,6 +104,10 @@
       const chatStatus = document.getElementById('chat-status');
       const messagesEl = document.getElementById('messages');
       const debugPanel = document.getElementById('debug-panel');
+      const loadEmbeddingsBtn = document.getElementById('load-embeddings-btn');
+      const clearEmbeddingsBtn = document.getElementById('clear-embeddings-btn');
+      const embeddingsStatus = document.getElementById('embeddings-status');
+      const embeddingsList = document.getElementById('embeddings-list');
 
       async function loadDefaultUrls() {
         const response = await fetch('/api/default-urls');
@@ -107,18 +125,21 @@
         const selected = defaultUrlSelect.value;
         const custom = urlInput.value.trim();
         const url = custom || selected;
+        const maxChars = parseInt(maxCharsInput.value, 10) || 1000;
         scrapeStatus.textContent = 'Indexando...';
+        indexPreview.textContent = '';
         const response = await fetch('/api/scrape-and-index', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
+          body: JSON.stringify({ url, max_chars_per_embedding: maxChars })
         });
         const result = await response.json();
         if (!response.ok) {
           scrapeStatus.textContent = result.detail || 'Error al indexar';
           return;
         }
-        scrapeStatus.textContent = `Contenido guardado en el RAG (${result.action})`;
+        scrapeStatus.textContent = `Contenido indexado (${result.action}) · ${result.chunks_count} fragmentos · Máx. letras: ${result.max_chars_per_embedding}`;
+        indexPreview.textContent = `Vista previa del texto guardado:\n${result.preview}`;
       });
 
       uploadBtn.addEventListener('click', async () => {
@@ -147,6 +168,36 @@
         analyticsStatus.textContent = `Sesiones: ${data.total_sessions} · Mensajes: ${data.total_messages}`;
       });
 
+      loadEmbeddingsBtn.addEventListener('click', async () => {
+        embeddingsStatus.textContent = 'Cargando embeddings...';
+        embeddingsList.innerHTML = '';
+        const response = await fetch('/api/embeddings');
+        const data = await response.json();
+        if (!response.ok) {
+          embeddingsStatus.textContent = data.detail || 'Error al cargar embeddings';
+          return;
+        }
+        embeddingsStatus.textContent = `Embeddings cargados: ${data.embeddings.length}`;
+        data.embeddings.forEach((item) => {
+          const row = document.createElement('div');
+          row.className = 'message';
+          row.innerHTML = `<strong>${item.title}</strong> <br/><small>${item.source_url} · chunk ${item.chunk_index} · embedding: ${item.embedding_size}</small><br/>${item.text}`;
+          embeddingsList.appendChild(row);
+        });
+      });
+
+      clearEmbeddingsBtn.addEventListener('click', async () => {
+        embeddingsStatus.textContent = 'Borrando embeddings...';
+        const response = await fetch('/api/embeddings/clear', { method: 'POST' });
+        const data = await response.json();
+        if (!response.ok) {
+          embeddingsStatus.textContent = data.detail || 'Error al borrar embeddings';
+          return;
+        }
+        embeddingsStatus.textContent = `Embeddings borrados en ${data.cleared_documents} documentos.`;
+        embeddingsList.innerHTML = '';
+      });
+
       askBtn.addEventListener('click', async () => {
         const sessionId = sessionIdInput.value.trim() || 'default-session';
         const question = questionInput.value.trim();
@@ -172,6 +223,22 @@
         debug.innerHTML = `<strong>Debug LLM:</strong><pre style="white-space: pre-wrap; font-size: 12px; margin: 0;">${JSON.stringify(result.debug, null, 2)}</pre>`;
         debugPanel.prepend(debug);
 
+        if (Array.isArray(result.debug?.reranked_chunks)) {
+          const compare = document.createElement('div');
+          compare.className = 'message';
+          compare.innerHTML = `<strong>Comparador de ranks</strong><br/><table style="width:100%; border-collapse: collapse; font-size: 12px; margin-top: 8px;">` +
+            `<thead><tr><th style="text-align:left; padding:6px; border-bottom:1px solid #d1d5db;">Original</th><th style="text-align:left; padding:6px; border-bottom:1px solid #d1d5db;">Reranked</th><th style="text-align:left; padding:6px; border-bottom:1px solid #d1d5db;">Score</th><th style="text-align:left; padding:6px; border-bottom:1px solid #d1d5db;">Fuente</th></tr></thead><tbody>` +
+            result.debug.reranked_chunks.map((item) => `
+              <tr>
+                <td style="padding:6px; border-bottom:1px solid #e5e7eb;">${item.original_rank}</td>
+                <td style="padding:6px; border-bottom:1px solid #e5e7eb;">${item.reranked_rank}</td>
+                <td style="padding:6px; border-bottom:1px solid #e5e7eb;">${item.hybrid_score}</td>
+                <td style="padding:6px; border-bottom:1px solid #e5e7eb;">${item.source_url}</td>
+              </tr>`).join('') +
+            `</tbody></table>`;
+          debugPanel.prepend(compare);
+        }
+
         chatStatus.textContent = 'Respuesta generada.';
         questionInput.value = '';
       });
@@ -187,6 +254,7 @@
           const target = button.dataset.tab;
           document.getElementById('scrape-panel').classList.toggle('hidden', target !== 'scrape');
           document.getElementById('chat-panel').classList.toggle('hidden', target !== 'chat');
+          document.getElementById('embeddings-panel').classList.toggle('hidden', target !== 'embeddings');
         });
       });
 

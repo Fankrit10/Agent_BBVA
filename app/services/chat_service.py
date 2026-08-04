@@ -14,20 +14,22 @@ class ChatService:
         self.llm = None
 
     def answer_question(self, session_id: str, question: str) -> dict[str, Any]:
-        relevant_chunks = self.scraper_service.retrieve_relevant_chunks(question, top_k=3)
+        original_chunks = self.scraper_service.retrieve_relevant_chunks(question, top_k=5)
+        reranked_chunks = self.scraper_service.rerank_chunks(original_chunks, question, top_k=3)
         debug_payload = {
             "query": question,
-            "retrieved_chunks": relevant_chunks,
+            "original_retrieved_chunks": original_chunks,
+            "reranked_chunks": reranked_chunks,
             "prompt": None,
             "llm_available": True,
             "llm_response": None,
             "llm_model": settings.LLM_MODEL,
         }
-        if not relevant_chunks:
-            answer = "Todavía no hay contenido indexado en el RAG. Primero guarda una URL para cargar el conocimiento."
+        if not original_chunks:
+            answer = "Todavía no hay contenido indexado en el RAG. Primero indexa contenido para cargar el conocimiento."
             sources = []
         else:
-            best_chunk = relevant_chunks[0]
+            best_chunk = reranked_chunks[0]
             if self._is_noise_text(best_chunk["text"]):
                 answer = "No pude encontrar una respuesta clara con el contenido actual. Intenta otra pregunta o indexa más contenido."
                 sources = []
@@ -42,7 +44,13 @@ class ChatService:
                 debug_payload["llm_error"] = llm_error
                 answer = llm_answer
                 sources = [
-                    {"url": item["source_url"], "score": round(item["score"], 3)} for item in relevant_chunks
+                    {
+                        "url": item["source_url"],
+                        "score": round(item["hybrid_score"], 3),
+                        "original_rank": item.get("original_rank"),
+                        "reranked_rank": item.get("reranked_rank"),
+                    }
+                    for item in reranked_chunks
                 ]
 
         self._persist_history(session_id, question, answer)

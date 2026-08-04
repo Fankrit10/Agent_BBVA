@@ -59,9 +59,7 @@ La interfaz quedará disponible en:
 
 ### Scraping contra sitios protegidos por WAF (ej. BBVA Colombia)
 
-El sitio oficial de BBVA Colombia está protegido por un WAF (Akamai) que bloquea por IP/reputación de red cualquier tráfico automatizado que salga directamente del servidor: incluso un navegador headless real (Playwright) recibe un 403 antes de que se ejecute JavaScript, porque el bloqueo ocurre a nivel de red, no de "detección de bot" en el navegador.
-
-La solución implementada es `ResilientScraperAdapter` (app/adapters/resilient_scraper_adapter.py), que prueba, en orden, hasta obtener contenido real:
+Se utilizó un proxy para saltar esta restriccion
 
 1. **Jina AI Reader** (`https://r.jina.ai/<url>`) — servicio gratuito que renderiza la página desde su propia infraestructura y devuelve Markdown limpio. Como la petición nunca sale de la red del servidor hacia BBVA, evita el bloqueo por IP. Es la estrategia que consigue el contenido real de bbva.com.co.
 2. **Playwright** (Chromium headless local) — para sitios que necesitan JavaScript pero no bloquean por red.
@@ -101,7 +99,6 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## Futuras mejoras
 
-- Añadir un reranker para mejorar la calidad del retrieval.
 - Permitir elegir entre varios modelos de Hugging Face desde la UI.
 - Añadir autenticación y manejo de errores más robusto.
 - Guardar métricas de uso y calidad de respuestas en dashboards.
