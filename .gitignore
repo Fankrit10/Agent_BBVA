@@ -177,3 +177,9 @@ cython_debug/
 /static/qr_codes/
 /newman/
 *.postman_environment.json
+
+# Scraped data (regenerated locally at runtime, not meant to be versioned)
+/data/raw/*
+/data/clean/*
+!/data/raw/.gitkeep
+!/data/clean/.gitkeep

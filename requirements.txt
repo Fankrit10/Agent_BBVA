@@ -1,7 +1,8 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
-requests==2.32.0
-beautifulsoup4==4.4.0
+requests==2.32.3
+beautifulsoup4==4.12.3
+playwright==1.47.0
 pymongo==4.9.0
 python-dotenv==1.0.1
 numpy==1.26.4

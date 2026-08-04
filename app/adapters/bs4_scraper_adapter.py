@@ -1,17 +1,20 @@
-import collections
-import collections.abc
 import re
 
+import requests
 from bs4 import BeautifulSoup
 
 from app.adapters.base import BaseScraperAdapter
 
 
-if not hasattr(collections, "Callable"):
-    collections.Callable = collections.abc.Callable
-
-
 class BeautifulSoupScraperAdapter(BaseScraperAdapter):
+    """Fetches a page with a plain HTTP request. Works only for
+    server-rendered (non-JavaScript) pages."""
+
+    def fetch(self, url: str) -> str:
+        response = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+        return response.text
+
     def _is_noise_line(self, line: str) -> bool:
         if len(line) < 30:
             return True
@@ -26,20 +29,20 @@ class BeautifulSoupScraperAdapter(BaseScraperAdapter):
             return True
         return False
 
-    def extract(self, html: str, url: str) -> str:
+    def extract(self, html: str, url: str) -> tuple[str, str]:
         soup = BeautifulSoup(html, "html.parser")
         for tag in soup(["script", "style", "noscript", "svg", "iframe", "header", "footer", "nav", "form", "input", "button", "meta", "link"]):
             tag.decompose()
 
-        text = soup.get_text(" ", strip=True)
-        lines = []
-        for line in text.splitlines():
-            line = re.sub(r"\s+", " ", line).strip()
-            if not line:
-                continue
-            if self._is_noise_line(line):
-                continue
-            lines.append(line)
+        # separator="\n" preserves one line per text node so paragraphs stay
+        # distinguishable; joining with a plain space would collapse the
+        # whole page into a single line and drop most of the real content
+        # once line-level noise filtering runs.
+        text = soup.get_text("\n", strip=True)
+        raw_lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+        raw_lines = [line for line in raw_lines if line]
+        raw_text = "\n".join(raw_lines)[:20000]
 
-        cleaned = "\n".join(lines)
-        return cleaned[:20000]
+        cleaned_lines = [line for line in raw_lines if not self._is_noise_line(line)]
+        cleaned_text = "\n".join(cleaned_lines)[:20000]
+        return raw_text, cleaned_text

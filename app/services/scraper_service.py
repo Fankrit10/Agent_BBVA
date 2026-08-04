@@ -1,21 +1,23 @@
 import hashlib
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import numpy as np
-import requests
 from sentence_transformers import SentenceTransformer
 
-from app.adapters.bs4_scraper_adapter import BeautifulSoupScraperAdapter
+from app.adapters.playwright_scraper_adapter import PlaywrightScraperAdapter
 from app.config import settings
 from app.db.mongo_singleton import MongoSingleton
 from app.factories.rag_document_factory import StandardRagDocumentFactory
 
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+
 
 class ScraperService:
     def __init__(self):
-        self.adapter = BeautifulSoupScraperAdapter()
+        self.adapter = PlaywrightScraperAdapter()
         self.factory = StandardRagDocumentFactory()
         self.embedding_model = None
         self.collection = MongoSingleton.get_instance().get_collection()
@@ -26,12 +28,11 @@ class ScraperService:
         return self.embedding_model
 
     def fetch_page(self, url: str) -> dict[str, Any]:
-        response = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-        response.raise_for_status()
+        html = self.adapter.fetch(url)
         return {
             "url": url,
-            "html": response.text,
-            "title": self._extract_title(response.text),
+            "html": html,
+            "title": self._extract_title(html),
         }
 
     def _extract_title(self, html: str) -> str:
@@ -40,10 +41,21 @@ class ScraperService:
             return "Sin título"
         return re.sub(r"\s+", " ", match.group(1)).strip()
 
+    def _persist_local_copies(self, source_hash: str, raw_html: str, raw_text: str, cleaned_text: str) -> None:
+        raw_dir = DATA_DIR / "raw"
+        clean_dir = DATA_DIR / "clean"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        clean_dir.mkdir(parents=True, exist_ok=True)
+        (raw_dir / f"{source_hash}.html").write_text(raw_html, encoding="utf-8")
+        (raw_dir / f"{source_hash}.txt").write_text(raw_text, encoding="utf-8")
+        (clean_dir / f"{source_hash}.txt").write_text(cleaned_text, encoding="utf-8")
+
     def scrape_and_index(self, url: str) -> dict[str, Any]:
         page = self.fetch_page(url)
-        cleaned_text = self.adapter.extract(page["html"], page["url"])
-        raw_text = cleaned_text[:15000]
+        raw_text, cleaned_text = self.adapter.extract(page["html"], page["url"])
+        source_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
+        self._persist_local_copies(source_hash, page["html"], raw_text, cleaned_text)
+
         chunks = self._chunk_text(cleaned_text)
         chunk_payloads = []
         for index, chunk in enumerate(chunks):
@@ -57,7 +69,7 @@ class ScraperService:
             cleaned_text=cleaned_text,
             chunks=chunk_payloads,
         )
-        document_payload["source_hash"] = hashlib.sha256(url.encode("utf-8")).hexdigest()
+        document_payload["source_hash"] = source_hash
 
         existing = self.collection.find_one({"source_hash": document_payload["source_hash"]})
         if existing:

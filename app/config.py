@@ -10,9 +10,9 @@ class Settings:
     MONGO_COLLECTION_NAME = os.getenv("MONGO_COLLECTION_NAME", "RAG_BBVA")
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
     DEFAULT_URLS = [
-        "https://www.bbva.com.co/",
-        "https://www.bbva.com.co/personas/",
-        "https://www.bbva.com.co/empresas/",
+        "https://www.bbva.com.co",
+        "https://www.bbva.com.co/personas",
+        "https://www.bbva.com.co/empresas",
     ]
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "600"))
     CHAT_WINDOW = int(os.getenv("CHAT_WINDOW", "6"))

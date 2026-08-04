@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from pathlib import Path
 
 from app.config import settings
@@ -49,7 +50,7 @@ async def scrape_and_index(request: Request) -> dict[str, object]:
         raise HTTPException(status_code=500, detail="Servicio no inicializado")
 
     try:
-        result = scraper_service.scrape_and_index(url)
+        result = await run_in_threadpool(scraper_service.scrape_and_index, url)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -68,7 +69,7 @@ async def chat(request: Request) -> dict[str, object]:
     if chat_service is None:
         raise HTTPException(status_code=500, detail="Servicio de chat no inicializado")
 
-    return chat_service.answer_question(session_id, question)
+    return await run_in_threadpool(chat_service.answer_question, session_id, question)
 
 
 @app.get("/api/history/{session_id}")

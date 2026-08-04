@@ -3,21 +3,21 @@
 Sistema RAG minimalista y funcional en Python con FastAPI, MongoDB, scraping web y embeddings open source de Hugging Face. La app permite:
 
 - Ingresar una URL desde una UI web o elegir una de tres URLs por defecto.
-- Scrapear el contenido, limpiarlo y almacenarlo en MongoDB.
-- Vectorizar los fragmentos con un modelo open source de Hugging Face.
+- Scrapear el contenido (con renderizado JavaScript vía Playwright), limpiarlo y guardar una copia local de lo crudo y lo limpio en `data/raw/` y `data/clean/`.
+- Vectorizar los fragmentos con un modelo open source de Hugging Face e indexarlos en MongoDB (colección `RAG_BBVA`).
 - Consultar el contenido indexado desde una segunda pestaña de chat.
 - Persistir el historial de conversación por sesión.
 
 ## Supuesto de diseño
 
-Se asumió que la base MongoDB está disponible (localmente o vía Docker) y que el contenido a indexar puede ser extraído con scraping clásico sin renderizado JavaScript.
+Se asumió que la base MongoDB está disponible (localmente o vía Docker) y que el contenido a indexar puede requerir renderizado JavaScript (sitios tipo React/Angular), por lo que el scraping se hace con un navegador headless (Playwright) en vez de un simple `requests.get`.
 
 ## Stack tecnológico
 
 - Python 3.11
 - FastAPI para la API y UI minimalista
 - MongoDB para persistir documentos y mensajes de chat
-- BeautifulSoup para scraping
+- Playwright (Chromium headless) + BeautifulSoup para scraping — Playwright renderiza JavaScript antes de extraer el HTML, BeautifulSoup limpia y estructura el texto
 - sentence-transformers + Hugging Face para embeddings open source
 - Hugging Face Inference API (`huggingface_hub.InferenceClient`) con `HuggingFaceH4/zephyr-7b-beta` para la generación de respuestas del chat — modelo open source alojado en Hugging Face, sin dependencias de OpenAI ni de cargar un LLM localmente
 - Docker y Docker Compose para levantar la app y la base de datos
@@ -25,7 +25,7 @@ Se asumió que la base MongoDB está disponible (localmente o vía Docker) y que
 ## Patrones de diseño implementados
 
 - Singleton: conexión a MongoDB centralizada en app/db/mongo_singleton.py
-- Adapter: extracción de texto desacoplada mediante app/adapters/bs4_scraper_adapter.py
+- Adapter: `BaseScraperAdapter` desacopla "cómo se obtiene y limpia una página" del resto del sistema; `BeautifulSoupScraperAdapter` (requests + bs4) y `PlaywrightScraperAdapter` (navegador headless, hereda del anterior y hace fallback a él si el navegador falla) son implementaciones intercambiables — app/adapters/
 - Abstract Factory: creación de documentos y chunks centralizada en app/factories/rag_document_factory.py
 
 ## Requisitos previos
@@ -75,12 +75,13 @@ Se leen automáticamente desde el archivo .env si existe. Los valores por defect
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+playwright install chromium  # instala el navegador headless usado para el scraping
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## Limitaciones conocidas
 
-- El scraping es básico y funciona mejor con páginas estáticas o semiestáticas.
+- El sitio oficial de BBVA Colombia (bbva.com.co) bloquea el scraping automatizado con protección anti-bot (WAF) incluso usando un navegador real headless (responde "Por favor, inténtalo más tarde"). El enunciado de la prueba permite explícitamente usar otro banco si esto ocurre; por eso los datos de ejemplo probados end-to-end usan bancoagrario.gov.co (sitio con contenido renderizado por Drupal, sin bloqueo de bots), y el campo de URL personalizada permite apuntar a cualquier otro sitio.
 - La generación de respuestas depende de la disponibilidad de la Inference API de Hugging Face (modelo `HuggingFaceH4/zephyr-7b-beta`); si el modelo tarda en "despertar" (cold start) o el token no está configurado, la app cae a una respuesta extractiva basada en el fragmento más relevante en vez de fallar.
 - La búsqueda es por similitud de embeddings calculada en la app, no por vector search nativo de MongoDB Atlas.
 
